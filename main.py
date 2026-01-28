@@ -243,25 +243,33 @@ def run_full_analysis(
             logger.info(f"等待 {analysis_delay} 秒后执行大盘复盘（避免API限流）...")
             time.sleep(analysis_delay)
 
-      # 2. 运行大盘复盘（如果启用且不是仅个股模式）
-market_report = ""
-if config.market_review_enabled and not args.no_market_review:
-    # ========== 新增：先调用东方财富获取大盘数据 ==========
-    logger.info("正在从东方财富获取大盘数据...")
-    eastmoney_market_data = fetch_eastmoney_market()
-    logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
-    # ========== 东方财富数据获取结束 ==========
-    
-    # 只调用一次，并获取结果（传入东方财富数据）
-    review_result = run_market_review(
-        notifier=pipeline.notifier,
-        analyzer=pipeline.analyzer,
-        search_service=pipeline.search_service,
-        market_data=eastmoney_market_data  # 新增：传入东方财富数据
-    )
-    # 如果有结果，赋值给 market_report 用于后续飞书文档生成
-    if review_result:
-        market_report = review_result
+     try:
+    # 2. 运行大盘复盘（如果启用且不是仅个股模式）
+    market_report = ""
+    if config.market_review_enabled and not args.no_market_review:
+        # ========== 新增：先调用东方财富获取大盘数据 ==========
+        try:
+            logger.info("正在从东方财富获取大盘数据...")
+            eastmoney_market_data = fetch_eastmoney_market()
+            logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
+        except Exception as e:
+            logger.error(f"获取东方财富大盘数据失败: {e}")
+            eastmoney_market_data = {}
+        # ========== 东方财富数据获取结束 ==========
+        
+        # 只调用一次，并获取结果（传入东方财富数据）
+        review_result = run_market_review(
+            notifier=pipeline.notifier,
+            analyzer=pipeline.analyzer,
+            search_service=pipeline.search_service,
+            market_data=eastmoney_market_data  # 新增：传入东方财富数据
+        )
+        # 如果有结果，赋值给 market_report 用于后续飞书文档生成
+        if review_result:
+            market_report = review_result
+# 补充except块
+except Exception as e:
+    logger.error(f"大盘复盘逻辑执行失败: {e}")
         
         # 输出摘要
         if results:
