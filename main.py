@@ -47,6 +47,10 @@ from src.core.market_review import run_market_review
 from src.search_service import SearchService
 from src.analyzer import GeminiAnalyzer
 
+# ========== 新增：导入东方财富数据函数 ==========
+from data_provider import fetch_eastmoney_stock, fetch_eastmoney_market
+# ========== 东方财富导入结束 ==========
+
 # 配置日志格式
 LOG_FORMAT = '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -239,18 +243,25 @@ def run_full_analysis(
             logger.info(f"等待 {analysis_delay} 秒后执行大盘复盘（避免API限流）...")
             time.sleep(analysis_delay)
 
-        # 2. 运行大盘复盘（如果启用且不是仅个股模式）
-        market_report = ""
-        if config.market_review_enabled and not args.no_market_review:
-            # 只调用一次，并获取结果
-            review_result = run_market_review(
-                notifier=pipeline.notifier,
-                analyzer=pipeline.analyzer,
-                search_service=pipeline.search_service
-            )
-            # 如果有结果，赋值给 market_report 用于后续飞书文档生成
-            if review_result:
-                market_report = review_result
+      # 2. 运行大盘复盘（如果启用且不是仅个股模式）
+market_report = ""
+if config.market_review_enabled and not args.no_market_review:
+    # ========== 新增：先调用东方财富获取大盘数据 ==========
+    logger.info("正在从东方财富获取大盘数据...")
+    eastmoney_market_data = fetch_eastmoney_market()
+    logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
+    # ========== 东方财富数据获取结束 ==========
+    
+    # 只调用一次，并获取结果（传入东方财富数据）
+    review_result = run_market_review(
+        notifier=pipeline.notifier,
+        analyzer=pipeline.analyzer,
+        search_service=pipeline.search_service,
+        market_data=eastmoney_market_data  # 新增：传入东方财富数据
+    )
+    # 如果有结果，赋值给 market_report 用于后续飞书文档生成
+    if review_result:
+        market_report = review_result
         
         # 输出摘要
         if results:
@@ -392,27 +403,34 @@ def main() -> int:
         return 0
 
     try:
-        # 模式1: 仅大盘复盘
-        if args.market_review:
-            logger.info("模式: 仅大盘复盘")
-            notifier = NotificationService()
-            
-            # 初始化搜索服务和分析器（如果有配置）
-            search_service = None
-            analyzer = None
-            
-            if config.bocha_api_keys or config.tavily_api_keys or config.serpapi_keys:
-                search_service = SearchService(
-                    bocha_keys=config.bocha_api_keys,
-                    tavily_keys=config.tavily_api_keys,
-                    serpapi_keys=config.serpapi_keys
-                )
-            
-            if config.gemini_api_key:
-                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
-            
-            run_market_review(notifier, analyzer, search_service)
-            return 0
+       # 模式1: 仅大盘复盘
+if args.market_review:
+    logger.info("模式: 仅大盘复盘")
+    notifier = NotificationService()
+    
+    # 初始化搜索服务和分析器（如果有配置）
+    search_service = None
+    analyzer = None
+    
+    if config.bocha_api_keys or config.tavily_api_keys or config.serpapi_keys:
+        search_service = SearchService(
+            bocha_keys=config.bocha_api_keys,
+            tavily_keys=config.tavily_api_keys,
+            serpapi_keys=config.serpapi_keys
+        )
+    
+    if config.gemini_api_key:
+        analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+    
+    # ========== 新增：调用东方财富获取大盘数据 ==========
+    logger.info("正在从东方财富获取大盘数据...")
+    eastmoney_market_data = fetch_eastmoney_market()
+    logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
+    # ========== 东方财富数据获取结束 ==========
+    
+    # 传入东方财富数据运行大盘复盘
+    run_market_review(notifier, analyzer, search_service, market_data=eastmoney_market_data)
+    return 0
         
         # 模式2: 定时任务模式
         if args.schedule or config.schedule_enabled:
