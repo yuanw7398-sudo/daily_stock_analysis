@@ -243,33 +243,31 @@ def run_full_analysis(
             logger.info(f"等待 {analysis_delay} 秒后执行大盘复盘（避免API限流）...")
             time.sleep(analysis_delay)
 
-     try:
-    # 2. 运行大盘复盘（如果启用且不是仅个股模式）
-    market_report = ""
-    if config.market_review_enabled and not args.no_market_review:
-        # ========== 新增：先调用东方财富获取大盘数据 ==========
-        try:
-            logger.info("正在从东方财富获取大盘数据...")
-            eastmoney_market_data = fetch_eastmoney_market()
-            logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
-        except Exception as e:
-            logger.error(f"获取东方财富大盘数据失败: {e}")
-            eastmoney_market_data = {}
-        # ========== 东方财富数据获取结束 ==========
-        
-        # 只调用一次，并获取结果（传入东方财富数据）
-        review_result = run_market_review(
-            notifier=pipeline.notifier,
-            analyzer=pipeline.analyzer,
-            search_service=pipeline.search_service,
-            market_data=eastmoney_market_data  # 新增：传入东方财富数据
-        )
-        # 如果有结果，赋值给 market_report 用于后续飞书文档生成
-        if review_result:
-            market_report = review_result
-# 补充except块
-except Exception as e:
-    logger.error(f"大盘复盘逻辑执行失败: {e}")
+        # 2. 运行大盘复盘（如果启用且不是仅个股模式）
+        market_report = ""
+        if config.market_review_enabled and not args.no_market_review:
+            # ========== 调用东方财富获取大盘数据 ==========
+            try:
+                logger.info("正在从东方财富获取大盘数据...")
+                eastmoney_market_data = fetch_eastmoney_market()
+                logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
+            except Exception as e:
+                logger.error(f"获取东方财富大盘数据失败: {e}")
+                eastmoney_market_data = {}
+            # ========== 东方财富数据获取结束 ==========
+            
+            # 调用大盘复盘
+            try:
+                review_result = run_market_review(
+                    notifier=pipeline.notifier,
+                    analyzer=pipeline.analyzer,
+                    search_service=pipeline.search_service,
+                    market_data=eastmoney_market_data
+                )
+                if review_result:
+                    market_report = review_result
+            except Exception as e:
+                logger.error(f"大盘复盘执行失败: {e}")
         
         # 输出摘要
         if results:
@@ -283,39 +281,28 @@ except Exception as e:
         
         logger.info("\n任务执行完成")
 
-        # === 新增：生成飞书云文档 ===
+        # === 生成飞书云文档 ===
         try:
             feishu_doc = FeishuDocManager()
             if feishu_doc.is_configured() and (results or market_report):
                 logger.info("正在创建飞书云文档...")
-
-                # 1. 准备标题 "01-01 13:01大盘复盘"
                 tz_cn = timezone(timedelta(hours=8))
                 now = datetime.now(tz_cn)
                 doc_title = f"{now.strftime('%Y-%m-%d %H:%M')} 大盘复盘"
-
-                # 2. 准备内容 (拼接个股分析和大盘复盘)
                 full_content = ""
-
-                # 添加大盘复盘内容（如果有）
                 if market_report:
                     full_content += f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n"
-
-                # 添加个股决策仪表盘（使用 NotificationService 生成）
                 if results:
                     dashboard_content = pipeline.notifier.generate_dashboard_report(results)
                     full_content += f"# 🚀 个股决策仪表盘\n\n{dashboard_content}"
-
-                # 3. 创建文档
                 doc_url = feishu_doc.create_daily_doc(doc_title, full_content)
                 if doc_url:
                     logger.info(f"飞书云文档创建成功: {doc_url}")
-                    # 可选：将文档链接也推送到群里
                     pipeline.notifier.send(f"[{now.strftime('%Y-%m-%d %H:%M')}] 复盘文档创建成功: {doc_url}")
-
         except Exception as e:
             logger.error(f"飞书文档生成失败: {e}")
-        
+    
+    # 外层try的全局异常捕获
     except Exception as e:
         logger.exception(f"分析流程执行失败: {e}")
 
@@ -411,34 +398,38 @@ def main() -> int:
         return 0
 
     try:
-       # 模式1: 仅大盘复盘
-if args.market_review:
-    logger.info("模式: 仅大盘复盘")
-    notifier = NotificationService()
-    
-    # 初始化搜索服务和分析器（如果有配置）
-    search_service = None
-    analyzer = None
-    
-    if config.bocha_api_keys or config.tavily_api_keys or config.serpapi_keys:
-        search_service = SearchService(
-            bocha_keys=config.bocha_api_keys,
-            tavily_keys=config.tavily_api_keys,
-            serpapi_keys=config.serpapi_keys
-        )
-    
-    if config.gemini_api_key:
-        analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
-    
-    # ========== 新增：调用东方财富获取大盘数据 ==========
-    logger.info("正在从东方财富获取大盘数据...")
-    eastmoney_market_data = fetch_eastmoney_market()
-    logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
-    # ========== 东方财富数据获取结束 ==========
-    
-    # 传入东方财富数据运行大盘复盘
-    run_market_review(notifier, analyzer, search_service, market_data=eastmoney_market_data)
-    return 0
+        # 模式1: 仅大盘复盘
+        if args.market_review:
+            logger.info("模式: 仅大盘复盘")
+            notifier = NotificationService()
+            
+            # 初始化搜索服务和分析器（如果有配置）
+            search_service = None
+            analyzer = None
+            
+            if config.bocha_api_keys or config.tavily_api_keys or config.serpapi_keys:
+                search_service = SearchService(
+                    bocha_keys=config.bocha_api_keys,
+                    tavily_keys=config.tavily_api_keys,
+                    serpapi_keys=config.serpapi_keys
+                )
+            
+            if config.gemini_api_key:
+                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+            
+            # ========== 调用东方财富获取大盘数据 ==========
+            try:
+                logger.info("正在从东方财富获取大盘数据...")
+                eastmoney_market_data = fetch_eastmoney_market()
+                logger.info(f"东方财富大盘数据：{eastmoney_market_data}")
+            except Exception as e:
+                logger.error(f"获取东方财富大盘数据失败: {e}")
+                eastmoney_market_data = {}
+            # ========== 东方财富数据获取结束 ==========
+            
+            # 传入东方财富数据运行大盘复盘
+            run_market_review(notifier, analyzer, search_service, market_data=eastmoney_market_data)
+            return 0
         
         # 模式2: 定时任务模式
         if args.schedule or config.schedule_enabled:
