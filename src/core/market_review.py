@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 def run_market_review(
     notifier: NotificationService, 
     analyzer: Optional[GeminiAnalyzer] = None, 
-    search_service: Optional[SearchService] = None
+    search_service: Optional[SearchService] = None,
+    market_data: Optional[dict] = None  # 新增：接收东方财富大盘数据
 ) -> Optional[str]:
     """
     执行大盘复盘分析
@@ -43,9 +44,10 @@ def run_market_review(
     
     try:
         market_analyzer = MarketAnalyzer(
-            search_service=search_service,
-            analyzer=analyzer
-        )
+    search_service=search_service,
+    analyzer=analyzer,
+    market_data=market_data  # 新增：把东方财富数据传给分析器
+)
         
         # 执行复盘
         review_report = market_analyzer.run_daily_review()
